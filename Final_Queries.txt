@@ -1,0 +1,273 @@
+1. Name all coaches who have changed the teams in series of world cups.
+
+match (coach:Coach)-[r:COACHED]->(team:Team)
+WITH count(r) as count,coach as coach_node
+match (coach:Coach)-[r:COACHED]->(team:Team)
+where count>1 AND coach.name=coach_node.name
+return coach.name as Coach ,team.name as Team , r.wcId as WorldCup
+
+##############################################################################################
+2. Team Ranking (User story)
+
+MATCH (t:Team)-[r:PARTICIPATED_IN]->(m:Match)
+with count(r) as matches_played,t.name as team_name
+MATCH (t:Team)-[r:PARTICIPATED_IN]->(m:Match)
+where m.result contains t.id and t.name=team_name
+with m.result as result,t.name as team_name,matches_played
+with count(team_name) as matches_won,team_name,matches_played
+return collect(team_name) as Team,(matches_won*100)/matches_played as Win_Percentage, matches_played as Matches_Played, matches_won as Matches_Won
+ORDER BY Win_Percentage DESC
+
+##############################################################################################
+3. Which teams were out of quarterfinals in the past 5 world cups? List the teams including against whom they lost and when the match took take place.
+
+
+match (wc:WorldCup)-->(qf:SemiFinal)<--(t:Team)
+WITH wc.id as wc_id,collect(t.id) as sf_teams
+MATCH (wc:WorldCup)-->(qf:QuarterFinal)<--(t:Team)
+WHERE wc.id=wc_id AND not(t.id in sf_teams)
+WITH t.id as Teams_out_of_QF,wc_id
+match (wc:WorldCup{id:wc_id})-->(qf:QuarterFinal)<--(t1:Team{id:Teams_out_of_QF}),(qf)<--(t2:Team)
+where qf.result contains t2.id
+RETURN wc_id as WorldCup ,Teams_out_of_QF,t2.id as Lost_Against,qf.date as Conducted_On,qf.result
+##############################################################################################
+4. List top 5 players information who have played maximum matches in ICC world Cup.
+
+match (p:Player)-[r:STATS_FOR]->(m:Match)
+RETURN p.name as player_name,count(r) as matches_played
+ORDER BY matches_played DESC
+LIMIT 5
+
+###############################################################################################
+5. Which 5 team has the highest run chase display by grouping it in response to world cup year.
+
+
+
+MATCH (wc:WorldCup)--(m:Match)
+WITH wc.id as wc_id,m.id as match_id,m.name as match_name,m.toss as toss,rtrim(left(m.toss,3)) as country1,m.result as result
+WITH
+CASE
+WHEN rtrim(left(match_name,3))=country1
+THEN ltrim(right(match_name,3))
+ELSE rtrim(left(match_name,3)) END AS country2,country1,toss,match_id,wc_id,result
+WITH
+CASE
+WHEN toss contains "bats" 
+THEN country2
+ELSE country1 END as chasing_country,match_id,wc_id,result
+WHERE result contains chasing_country
+WITH chasing_country as chaser,match_id,wc_id
+MATCH (wc:WorldCup{id:wc_id})--(m:Match{id:match_id})<-[r2:PARTICIPATED_IN]-(t:Team{id:chaser})
+WITH chaser,match_id,wc_id,r2.score as score
+ORDER BY r2.score DESC
+WITH wc_id as wc_id,collect({chase_score:score,chaser:chaser})[0..5] as collection
+UNWIND collection as team_details
+RETURN wc_id as WorldCup,team_details as Team_Details
+ORDER BY wc_id DESC
+###################################################################################################
+6. Who won the recent world cup? Display all the matches of the winning team including their results?
+
+
+MATCH (wc:WorldCup)
+WITH wc.wonBy as won_by,wc.year as wc_year
+ORDER BY wc_year DESC
+LIMIT 1
+MATCH (wc:WorldCup{year:wc_year})-->(m:Match)<-[r2:PARTICIPATED_IN]-(t:Team)
+WHERE t.name=won_by
+RETURN wc_year as Recent_Worldcup,won_by as Winner,m.name as Match,m.date as Date,m.result as Result
+#######################################################################################################
+7. Show the average run rate of top 5 batsman and to which team they belong.
+
+
+MATCH (b:Batsman) <-[i:IS_A]- (p:Player) -[s:STATS_FOR]-> (m:Match), (t:Team) 
+WHERE i.position IN ["Middle order", "Opener"] AND p.id contains t.id
+WITH t,p.name as Player, COLLECT(s.dismissal) as dismissals, sum(s.runsScored) as Total_Runs 
+WITH t,Player, Total_Runs, Length(FILTER(x in dismissals WHERE x <> "not out")) as Matches_Played 
+WHERE Matches_Played > 0 RETURN t.name as Team, Player, Total_Runs, Matches_Played, 
+Total_Runs / Matches_Played as Batting_Average Order by Total_Runs  DESC LIMIT 5
+##########################################################################################################
+8. World 11 players (User story)
+
+MATCH (b:Batsman) <-[i:IS_A{position:"Tail end"}]- (p:Player) -[s:STATS_FOR]-> (m:Match), (t:Team) WHERE p.id contains t.id
+MATCH (bow:Bowler) <-[is:IS_A{bowlType:"Fast medium"}]- (p) return t.name as Team, p.name as Player,sum(s.wickets) 
+as Total_Wickets ORDER BY Total_Wickets DESC LIMIT 3
+
+MATCH (b:Batsman) <-[i:IS_A{position:"Tail end"}]- (p:Player) -[s:STATS_FOR]-> (m:Match), (t:Team) WHERE p.id contains t.id   
+MATCH (bow:Bowler) <-[is:IS_A{bowlType:"Leg spin"}]- (p) return t.name as Team, p.name as Player,sum(s.wickets) 
+as Total_Wickets ORDER BY Total_Wickets DESC LIMIT 1
+
+MATCH (b:Batsman) <-[i:IS_A{position:"Tail end"}]- (p:Player) -[s:STATS_FOR]-> (m:Match), (t:Team) WHERE p.id contains t.id   
+MATCH (bow:Bowler) <-[is:IS_A{bowlType:"Off spin"}]- (p) return t.name as Team, p.name as Player,sum(s.wickets) 
+as Total_Wickets ORDER BY Total_Wickets DESC LIMIT 1
+
+MATCH (b:Batsman) <-[i:IS_A{position:"Middle order"}]- (p:Player) -[s:STATS_FOR]-> (m:Match), (t:Team) WHERE p.id contains t.id 
+WITH t, p.name as Player, COLLECT(s.dismissal) as dismissals, sum(s.runsScored) as Total_Runs 
+WITH t, Player, Total_Runs, Length(FILTER(x in dismissals WHERE x <> "not out")) as Matches_Played 
+WHERE Matches_Played > 0 RETURN t.name as Team, Player, Total_Runs, Matches_Played, 
+Total_Runs / Matches_Played as Batting_Average Order by Total_Runs  DESC LIMIT 4
+
+MATCH (b:Batsman) <-[i:IS_A{position:"Opener"}]- (p:Player) -[s:STATS_FOR]-> (m:Match) , (t:Team) WHERE p.id contains t.id
+WITH t, p.name as Player, COLLECT(s.dismissal) as dismissals, sum(s.runsScored) as Total_Runs, sum(s.ballsTaken) as Delivery_Faced 
+WITH t, Player, Delivery_Faced, Total_Runs, Length(FILTER(x in dismissals WHERE x <> "not out")) as Matches_Played 
+WHERE Matches_Played > 0 WITH t, Player, Matches_Played, Delivery_Faced, Total_Runs, (Total_Runs / Matches_Played) as Batting_Average 
+WHERE Batting_Average > 35 RETURN t.name as Team, Player, Total_Runs, Matches_Played, Batting_Average, 
+(Total_Runs * 100)/Delivery_Faced as Strike_Rate Order by Strike_Rate  DESC LIMIT 2
+##############################################################################################################
+9. List top 5 bowlers who are have scored a hat-trick. Give details of the match?
+	
+MATCH  (h:Hatrick) <-[t:TOOK]- (p:Player)-[play:PLAYED_FOR_THE|CAPTAINED|VICE_CAPTAINED|KEPT_WICKETS]->(team:Team) 
+MATCH (tea:Team)<-[pll:PLAYED_FOR_THE|CAPTAINED|VICE_CAPTAINED|KEPT_WICKETS]- (pl : Player) -[s:STATS_FOR]-> (m:Match) 
+WHERE pl.id IN t.batsmenOut AND m.id = t.matchId 
+return DISTINCT pl.name as Wickets, tea.name as Batting_Team,
+s.dismissal as Dismissal, p.name as Bowler, 
+team.name as Bowling_Team, s.runsScored as Runs_Scored, m.name as Match, m.result as Result
+################################################################################################################
+10. Who holds the highest record of maximum runs, maximum wickets, man of the match till date?
+
+MATCH (p:Player) -[s:STATS_FOR]-> (m:Match) WITH p.name as name, sum(s.runsScored) as TotalRuns ORDER BY TotalRuns DESC LIMIT 1
+RETURN name,collect({runs:TotalRuns,title:"max runs"}) as result
+UNION
+MATCH (p:Player) -[s:STATS_FOR]-> (m:Match) WITH p.name as name, sum(s.wickets) as TotalWickets ORDER BY TotalWickets DESC LIMIT 1
+RETURN name,collect({runs:TotalWickets,title:"max wickets"}) as result
+UNION
+MATCH (m:Match) WITH m.MOM as name, count(m.MOM) as ManOfTheMatchCount ORDER BY ManOfTheMatchCount DESC LIMIT 1
+RETURN name,collect({runs:ManOfTheMatchCount,title:"max Man of the match"}) as result
+################################################################################################################
+11. List the top 10 players who are blowers but could score the highest runs in world cup (group by world cup year)
+
+MATCH (b:Batsman) <-[i:IS_A{position:"Tail end"}]- (p:Player) -[s:STATS_FOR] -> (m:Match) <-[c:CONDUCTED]- (wc:WorldCup)
+WITH p,wc.year as year, sum(s.runsScored) as totalRuns
+ORDER BY year, totalRuns DESC
+WITH year, COLLECT({Player:p.name, Total_Runs:totalRuns })[..10] as topRunsScorer
+RETURN year,topRunsScorer
+#################################################################################################################
+12. List the teams whose captain has changed from cups to cups and the details of the changes.
+
+MATCH (p:Player) -[c:CAPTAINED]-> (t:Team) WITH t,p,c, LENGTH(c.wcId) as size 
+MATCH(wc:WorldCup) WITH t,p,c, size, COUNT(wc) as worldCupCount 
+WHERE size <> worldCupCount 
+MATCH (woc:WorldCup) WITH t,p,c,woc WHERE woc.id IN c.wcId WITH t,p, COLLECT(woc.year) as years
+WITH t, p, FILTER(x in years WHERE NOT (x-4) IN years) as finalYears WITH t.name as Team, 
+COLLECT({Player_Name:p.name, Captaincy_Year:finalYears}) as Change_Details 
+RETURN Team, Change_Details ORDER BY Team DESC
+##################################################################################################################
+13. Which teams have won two consecutive world cups? 
+The answer should include when the world cups took place against whom they won the finals, the scores of the final, the names of the players, the coach and the captain
+
+MATCH (wc:WorldCup) WITH wc.wonBy as Winner, COLLECT(wc.year) as years, count(wc.year) as winnersCount 
+WHERE winnersCount > 1 WITH FILTER(x in years WHERE (x + 4) IN years) as arrayOfResults, Winner 
+WHERE LENGTH(arrayOfResults) > 0 
+MATCH (w:WorldCup) -[c:CONDUCTED]-> (m:Final) <-[part:PARTICIPATED_IN]- (t:Team) 
+WITH part, m, t,  Winner, arrayOfResults, w.wonBy as Winner1, w.year as winYear, w.id as wcId
+WHERE Winner = Winner1 AND ( w.year IN arrayOfResults OR LENGTH(FILTER(x in arrayOfResults WHERE x + 4 = w.year)) > 0 ) 
+WITH  winYear, Winner1, part, m, t, wcId
+MATCH (ma:Final)<-[st:STATS_FOR]-(player:Player)
+WHERE m.id = ma.id AND player.id CONTAINS t.id
+WITH wcId, winYear, Winner1, part, m, t, COLLECT(DISTINCT player.name) as Players_Played
+MATCH (cap:Player) -[capt:CAPTAINED]-> (teamCap:Team) <-[co:COACHED]- (coach:Coach)
+WHERE cap.id contains t.id AND LENGTH(FILTER(x in capt.wcId WHERE x=wcId)) > 0 
+AND LENGTH(FILTER(x in co.wcId WHERE x=wcId)) > 0
+WITH coach.name as Coach, cap.name as Captain, t, wcId, part, Winner1,  winYear, m.name as Match_Name, m.result as Match_Result,Players_Played ORDER BY t.name
+RETURN DISTINCT Winner1 as Winner, winYear as Year_Won, Match_Name, Match_Result as Result, 
+COLLECT({Team:t.name,Score:part.score +"/" + part.wickets + " (" + part.overs + ")", Players:Players_Played, Captain:Captain, Coach: Coach}) as Match_Details
+####################################################################################################################
+14. Which teams have scored maximum 6 and 4 in a match (not sum of all match but single match where maximum hits have been recorded). 
+Give the details of the match where it was scored.
+
+MATCH (p:Player) -[st:STATS_FOR]-> (m:Match) WITH m.id as mi, sum(st.fours+st.sixes) as Total ORDER BY Total DESC LIMIT 1 
+MATCH (pl) -[s:STATS_FOR]-> (mt:Match),(t:Team) WHERE mt.id = mi and pl.id contains t.id WITH t, mt, sum(s.sixes+s.fours) as tt 
+return t.name as Team, tt as Total_Hits, mt.name as Match, mt.result as Result
+#####################################################################################################################
+15. How many world cups where held? The answer should also provide the information of where they were played, when they were played and who won the cup?
+
+
+Match(w:WorldCup)return count(w) as No_Of_WorldCup_Held
+
+MATCH (c1:Country)-->(wc:WorldCup)-->(m:Match)-->(s:Stadium)-->(c2:Country)
+RETURN distinct wc.id as World_Cup,wc.year as Worldcup_Year,collect(distinct c1.name) as Hosted_By,collect(distinct c2.name) as Matches_Conducted_In,wc.wonBy as Won_By
+ORDER BY World_Cup ASC
+######################################################################################################################
+16. How many times has a player received the MotM(Man of the Match) award?
+
+MATCH (m:Match)
+RETURN m.MOM as Player,count(m.MOM) as Man_of_the_Match
+ORDER BY Player ASC
+######################################################################################################################
+17. Coach and Player (User Story)
+
+
+(Bowler)
+match (p:Player{id:"IND_03"})-[r:STATS_FOR]-(m:Match) where r.oversBowled IS NOT NULL 
+return p.name as Player_Name,sum(r.runsConceded) as Total_Runs_Conceded, sum(r.oversBowled) as Overs_Bowled, 
+sum(r.wicketsTaken) as Total_Wickets_Taken,tofloat(sum(r.runsConceded))/sum(r.oversBowled) as Economy
+
+(Batsman)
+match (p:Player{id:"SRI_08"})-[r:STATS_FOR]->(m:Match) where r.dismissal or r.runsScored is not null 
+return p.name as Player_Name, sum(r.runsScored) as Total_Runs_Scored, sum(r.ballsTaken) as Balls_Faced, 
+tofloat(sum(r.runsScored)) / sum(r.ballsTaken)*100 as Strike_Rate
+
+match (p:Player{id:"SRI_09"})-[r:STATS_FOR]->(m:Match) with p,collect(r) as STATS_FOR 
+return p.name as Player_Name,size(filter(r in STATS_FOR where r.dismissal =~ 'cau.*')) as caught,
+size(filter(r in STATS_FOR where r.dismissal =~ 'lbw.*')) as lbw,
+size(filter(r in STATS_FOR where r.dismissal =~ 'run.*')) as run_out,
+size(filter(r in STATS_FOR where r.dismissal =~ 'bowled.*')) as bowled
+#########################################################################################################################
+18. Quiz (User Story)
+
+	1. Who Umpired the WC final?
+	MATCH (W:WorldCup)-[r:CONDUCTED]->(M:Final)<-[r1:UMPIRED]-(U:Umpire) where W.year=2003 
+	return M.name as Match, COLLECT(U.name) AS Umpires UNION 
+	MATCH (W:WorldCup)-[r:CONDUCTED]->(M:Match)<-[r1:UMPIRED]-(U:Umpire) return M.name as Match, COLLECT(U.name) AS Umpires LIMIT 3
+
+	2. Where was the WC final 2003 held?
+	MATCH (W:WorldCup)--(M:Final)-[r]->(S:Stadium) WHERE W.year = 2003 return DISTINCT S.name as Stadium, W.year as Year 
+	UNION MATCH (W:WorldCup)--(M:Match)-[r]->(S:Stadium) return DISTINCT S.name as Stadium, W.year as Year LIMIT 4
+
+	3. Who was the Coach for India in 2003 world cup?
+    	MATCH (C:Coach)-[r]->(T:Team) where T.name="India" and r.wcId="WC1" 
+	return C.name as Coach,T.name as Team UNION MATCH (C:Coach)-[r]->(T:Team) return C.name as Coach,T.name as Team LIMIT 4
+	
+	4.Which team scored the least in an innings in 2003 WC?
+	Match (W:WorldCup)-[R]->(M:Match)<-[R1]-(T:Team) where W.year=2003 return T.name as Team,min(R1.score) AS Score  order by Score limit 4
+
+	5. Who has the maximum not-outs in world cup?
+	MATCH (m:Match) <-[s:STATS_FOR]- (p:Player)  WHERE s.dismissal = "not out" RETURN p.name,count(s.dismissal) as Not_Outs ORDER BY Not_Outs DESC LIMIT 4
+	
+###########################################################################################################################
+19. Head to Head (User Story)
+
+MATCH (m:Match) <-[p:PARTICIPATED_IN]- (t:Team) WHERE m.name contains "IND" and m.name contains "AUS" WITH t, 
+COLLECT(m.result)  as result WITH t, result, LENGTH(FILTER(x in result WHERE x contains t.id and x contains "won")) as Win, 
+LENGTH(FILTER(x in result WHERE not(x contains t.id) OR not(x contains "won"))) as Lost, LENGTH(FILTER(x in result WHERE x contains "Tied" OR x contains "Drawn" )) 
+as No_Result WITH No_Result,Win, Lost, result, t, Win/size(result) as Win_Percent, Lost/size(result) as Loss_Percent RETURN t.name as Team, Win, Lost, No_Result, 
+Win_Percent * 100 as Win_Percentage, Loss_Percent * 100 as Lost_Percentage, result
+###########################################################################################################################
+
+20. What was the schedule of semi-finals of and scores of the matches and name of the referee (do it for recent 2 world cups)
+
+Match (wc:WorldCup)
+WITH distinct(wc.year) as wc_year
+order by wc_year desc
+Limit 2
+match (s:Stadium)--(match:SemiFinal)--(wc:WorldCup),(t:Team)--(match)--(u:Umpire)
+where wc.year=wc_year
+WITH wc_year as World_Cup,match.date as match_date,match.name as match,match.result as Result,match.id as id,s.name as venue,collect(DISTINCT u.name) 
+as Refree_Names,match.toss as toss,rtrim(left(match.toss,3)) as country1
+WITH 
+CASE 
+WHEN rtrim(left(match,3))=country1
+THEN ltrim(right(match,3))
+ELSE rtrim(left(match,3)) END as country2,country1,id as match_id,toss,World_Cup,match_date,match ,venue, Refree_Names, Result
+WITH 
+CASE 
+WHEN toss contains "bats"
+THEN country1
+ELSE country2 END as innings1,country2,country1,match_id,toss,World_Cup,match_date,match ,venue, Refree_Names, Result
+WITH
+CASE
+WHEN country1=innings1
+THEN country2
+ELSE country1 END as innings2, innings1,match_id,toss,World_Cup,match_date,match ,venue, Refree_Names, Result
+match (t1:Team{id:innings1})-[r1:PARTICIPATED_IN]->(m:SemiFinal{id:match_id})<-[r2:PARTICIPATED_IN]-(t2:Team{id:innings2})
+RETURN World_Cup,match_id,match,match_date,venue,Refree_Names,Result,r1.score as innings1_score,r2.score as innings2_score
+ORDER BY match_id
